@@ -40,14 +40,14 @@
     "local-ip",
     "cli"
   ],
-  "author": "Thec00lkiddGIT",
+  "author": "c00lkiddtech",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Thec00lkiddGIT/cdn-generator.git"
+    "url": "git+https://github.com/c00lkiddtech/cdn-generator.git"
   },
   "bugs": {
-    "url": "https://github.com/Thec00lkiddGIT/cdn-generator/issues"
+    "url": "https://github.com/c00lkiddtech/cdn-generator/issues"
   },
-  "homepage": "https://github.com/Thec00lkiddGIT/cdn-generator#readme"
+  "homepage": "https://github.com/c00lkiddtech/cdn-generator#readme"
 }
