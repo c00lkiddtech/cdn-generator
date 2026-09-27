@@ -62,6 +62,7 @@ export interface ResolvedRepo extends RepoTarget {
 
 export interface RepoLinksResult extends ResolvedRepo {
   truncated: boolean;
+  base: CdnLink[];
   files: Array<{ path: string; links: CdnLink[] }>;
 }
 

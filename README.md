@@ -12,7 +12,20 @@ npm install -g cdn-generator
 npx cdn-generator
 ```
 
-Run `cdn-generator` (or `cdngen`) with no arguments for an interactive menu.
+## Usage
+
+Just give it a GitHub URL. It finds the default branch, lists every file, and prints the link for each file on every CDN:
+
+```bash
+cdn-generator https://github.com/owner/repo
+```
+
+Or run `cdn-generator` (or `cdngen`) with no arguments and paste the URL when asked.
+
+- Repo URL: links every file in the repo
+- Folder URL (`/tree/<branch>/<folder>`): links every file in that folder
+- File URL (`/blob/<branch>/<file>`): links just that file
+- An IP address instead of a URL: wildcard DNS hostnames (mode 2 below)
 
 ## Mode 1: GitHub repo → CDN links
 
@@ -27,20 +40,23 @@ Run `cdn-generator` (or `cdngen`) with no arguments for an interactive menu.
 | [Statically](https://statically.io) | `cdn.statically.io` |
 
 ```bash
-# repo root links on the default branch
-cdn-generator repo owner/repo
+# every file, every CDN
+cdn-generator https://github.com/jquery/jquery
 
-# a specific file at a tag, and check every link returns 200
-cdn-generator repo jquery/jquery@3.7.1 -f dist/jquery.min.js --check
+# one file, and check every link returns 200
+cdn-generator https://github.com/jquery/jquery/blob/3.7.1/dist/jquery.min.js --check
 
-# every file in a folder, pasted straight from a GitHub URL, saved as Markdown
-cdn-generator repo https://github.com/jquery/jquery/tree/3.7.1/dist --all --md -o links.md
+# a folder, saved as Markdown
+cdn-generator https://github.com/jquery/jquery/tree/3.7.1/dist --md -o links.md
+
+# only the base URLs (append any path yourself)
+cdn-generator https://github.com/jquery/jquery --root
 
 # pin the default branch to its latest commit SHA (safe for production caching)
-cdn-generator repo owner/repo --pin
+cdn-generator https://github.com/owner/repo --pin
 
 # only some providers
-cdn-generator repo owner/repo -p jsdelivr,githack
+cdn-generator https://github.com/owner/repo -p jsdelivr,githack
 ```
 
 Accepted repo formats: `owner/repo`, `owner/repo@ref`, `owner/repo#ref`, `github:owner/repo`, `git@github.com:owner/repo.git`, and GitHub URLs including `/tree/<ref>/<path>` and `/blob/<ref>/<path>`.
@@ -59,10 +75,10 @@ Branch links are cached by the CDNs (jsDelivr caches branches for up to 12h, `ra
 | [local-ip.sh](https://local-ip.sh) | `10.0.0.1.local-ip.sh`, `10-0-0-1.local-ip.sh` | no |
 
 ```bash
-cdn-generator ip 192.168.1.10
-cdn-generator ip 192.168.1.10 --sub app --port 3000   # app.192.168.1.10.nip.io:3000, app-192-168-1-10.nip.io:3000, ...
-cdn-generator ip 2a01:4f8:c17:b8f::2                   # 2a01-4f8-c17-b8f--2.sslip.io, ...
-cdn-generator ip 10.0.0.1 --check                      # resolve every hostname and confirm it points at the IP
+cdn-generator 192.168.1.10
+cdn-generator 192.168.1.10 --sub app --port 3000   # app.192.168.1.10.nip.io:3000, app-192-168-1-10.nip.io:3000, ...
+cdn-generator 2a01:4f8:c17:b8f::2                  # 2a01-4f8-c17-b8f--2.sslip.io, ...
+cdn-generator 10.0.0.1 --check                     # resolve every hostname and confirm it points at the IP
 ```
 
 ## Other commands
@@ -84,8 +100,8 @@ import { cdnLinks, generateRepoLinks, wildcardHosts, checkUrls, checkHosts } fro
 cdnLinks({ owner: 'jquery', repo: 'jquery', ref: '3.7.1', path: 'dist/jquery.min.js' });
 // [{ provider: 'jsdelivr', host: 'cdn.jsdelivr.net', url: 'https://cdn.jsdelivr.net/gh/jquery/jquery@3.7.1/dist/jquery.min.js', ... }, ...]
 
-const result = await generateRepoLinks('https://github.com/jquery/jquery/tree/3.7.1/dist', { all: true });
-// { owner, repo, ref, files: [{ path, links: [...] }, ...] }
+const result = await generateRepoLinks('https://github.com/jquery/jquery/tree/3.7.1/dist');
+// { owner, repo, ref, base: [...], files: [{ path, links: [...] }, ...] }
 
 wildcardHosts('10.0.0.1', { sub: 'app', port: 8080 });
 // [{ provider: 'nip.io', format: 'dot', host: 'app.10.0.0.1.nip.io', url: 'http://app.10.0.0.1.nip.io:8080' }, ...]

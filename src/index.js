@@ -7,8 +7,8 @@ import { cdnLinks } from './cdn.js';
 import { parseRepo, resolveRepo, listFiles } from './github.js';
 
 /**
- * One-shot helper: parse a repo string, resolve the ref and build CDN links.
- * With `all: true` links are generated for every file in the repo.
+ * One-shot helper: parse a repo string or GitHub URL, resolve the ref and build CDN links
+ * for every file (limited to the folder/file in the URL, or to `files` when given).
  */
 export async function generateRepoLinks(input, { ref, pin, all, files, providers, token } = {}) {
   const parsed = parseRepo(input);
@@ -16,15 +16,19 @@ export async function generateRepoLinks(input, { ref, pin, all, files, providers
 
   let paths = files?.length ? files : [target.path];
   let truncated = false;
-  if (all) {
+  if (all ?? !files?.length) {
     const listing = await listFiles(target, { token });
     paths = listing.files;
     truncated = listing.truncated;
+    if (!paths.length) {
+      throw new Error(`No files found in ${target.owner}/${target.repo}@${target.ref}/${target.path}`);
+    }
   }
 
   return {
     ...target,
     truncated,
+    base: cdnLinks({ ...target, path: '', providers }),
     files: paths.map((path) => ({ path, links: cdnLinks({ ...target, path, providers }) })),
   };
 }

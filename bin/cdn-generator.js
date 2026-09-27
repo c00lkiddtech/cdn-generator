@@ -2,6 +2,7 @@
 import { parseArgs } from 'node:util';
 import { writeFile, readFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
+import { isIP } from 'node:net';
 import {
   cdnProviders,
   wildcardProviders,
@@ -18,17 +19,21 @@ const HELP = `cdn-generator v${pkg.version}
 Generate CDN links for a GitHub repo, or wildcard-DNS hostnames for an IP.
 
 Usage:
-  cdn-generator                         interactive mode
-  cdn-generator repo <repo> [options]   GitHub repo -> CDN links
-  cdn-generator ip <ip> [options]       IP -> wildcard DNS hostnames
+  cdn-generator <github-url>            CDN links for every file in the repo
+  cdn-generator <ip>                    wildcard DNS hostnames for the IP
+  cdn-generator                         interactive: paste a GitHub URL or IP
   cdn-generator providers               list all supported services
 
-<repo> can be: owner/repo, owner/repo@ref, https://github.com/owner/repo[/tree/<ref>/<path>]
+Examples:
+  cdn-generator https://github.com/jquery/jquery
+  cdn-generator https://github.com/jquery/jquery/tree/3.7.1/dist
+  cdn-generator jquery/jquery@3.7.1
+  cdn-generator 192.168.1.10 --sub app
 
 Repo options:
-  -r, --ref <ref>        branch, tag or commit (default: the repo's default branch)
-  -f, --file <path>      link a specific file (repeatable)
-  -a, --all              link every file in the repo (or in the path from the URL)
+  -r, --ref <ref>        branch, tag or commit (default: from the URL, else the default branch)
+  -f, --file <path>      only link these files (repeatable)
+      --root             only print the base URLs, not every file
       --pin              resolve the ref to a commit SHA (best for production)
 
 IP options:
@@ -51,6 +56,7 @@ const options = {
   ref: { type: 'string', short: 'r' },
   file: { type: 'string', short: 'f', multiple: true },
   all: { type: 'boolean', short: 'a' },
+  root: { type: 'boolean' },
   pin: { type: 'boolean' },
   sub: { type: 'string', short: 's' },
   port: { type: 'string' },
@@ -82,30 +88,38 @@ function renderRepo(result, format) {
   if (format === 'json') return JSON.stringify(result, null, 2);
   const title = `${result.owner}/${result.repo}@${result.ref}`;
 
+  const files = result.root ? [] : result.files;
+  const count = `${result.files.length} file${result.files.length === 1 ? '' : 's'}`;
+
   if (format === 'md') {
-    const lines = [`# CDN links for \`${title}\``, ''];
-    for (const file of result.files) {
-      lines.push(`## \`/${file.path}\``, '', '| Provider | Host | URL |', '| --- | --- | --- |');
-      for (const l of file.links) {
+    const table = (links) => {
+      const rows = ['| Provider | Host | URL |', '| --- | --- | --- |'];
+      for (const l of links) {
         const status = l.ok === undefined ? '' : l.ok ? ' ✅' : ` ❌ ${l.status || l.error}`;
-        lines.push(`| ${l.providerName} | ${l.host} | ${l.url}${status} |`);
+        rows.push(`| ${l.providerName} | ${l.host} | ${l.url}${status} |`);
       }
-      lines.push('');
-    }
+      return rows;
+    };
+    const lines = [`# CDN links for \`${title}\``, '', ...(result.root ? [] : [count, '']), '## Base URLs (append any file path)', '', ...table(result.base), ''];
+    for (const file of files) lines.push(`## \`/${file.path}\``, '', ...table(file.links), '');
     return lines.join('\n');
   }
 
-  const lines = [bold(`CDN links for ${title}`)];
-  if (result.truncated) lines.push(red('Warning: GitHub truncated the file list (repo too large).'));
-  for (const file of result.files) {
-    lines.push('', cyan(bold(`/${file.path}`)));
+  const section = (heading, links) => {
+    const out = ['', cyan(bold(heading))];
     let last;
-    for (const l of file.links) {
-      if (l.provider !== last) lines.push(`  ${bold(l.providerName)}`);
+    for (const l of links) {
+      if (l.provider !== last) out.push(`  ${bold(l.providerName)}`);
       last = l.provider;
-      lines.push(`    ${l.url}${statusTag(l)}  ${dim(l.note)}`);
+      out.push(`    ${l.url}${statusTag(l)}  ${dim(l.note)}`);
     }
-  }
+    return out;
+  };
+
+  const lines = [bold(`CDN links for ${title}`) + (result.root ? '' : dim(`  (${count})`))];
+  if (result.truncated) lines.push(red('Warning: GitHub truncated the file list (repo too large).'));
+  lines.push(...section('Base URLs (append any file path)', result.base));
+  for (const file of files) lines.push(...section(`/${file.path}`, file.links));
   return lines.join('\n');
 }
 
@@ -147,22 +161,29 @@ function renderProviders() {
 const splitList = (list) => list?.flatMap((v) => v.split(',')).map((v) => v.trim()).filter(Boolean);
 
 async function runRepo(input, values) {
+  if (process.stderr.isTTY) process.stderr.write(dim('Fetching repo info from GitHub...\n'));
   const result = await generateRepoLinks(input, {
     ref: values.ref,
     pin: values.pin,
-    all: values.all,
+    all: values.root ? false : values.all,
     files: values.file,
     providers: splitList(values.provider),
   });
+  result.root = Boolean(values.root);
   if (values.check) {
-    const flat = result.files.flatMap((f) => f.links);
+    const groups = values.root ? [result.base] : result.files.map((f) => f.links);
+    const flat = groups.flat();
     process.stderr.write(dim(`Checking ${flat.length} URLs...\n`));
     const checked = await checkUrls(flat);
     let i = 0;
-    for (const file of result.files) file.links = file.links.map(() => checked[i++]);
+    const refill = (links) => links.map(() => checked[i++]);
+    if (values.root) result.base = refill(result.base);
+    else for (const file of result.files) file.links = refill(file.links);
   }
   return result;
 }
+
+const looksLikeIp = (s) => isIP(String(s).replace(/^\[|\]$/g, '')) !== 0;
 
 async function runIp(ip, values) {
   let hosts = wildcardHosts(ip, {
@@ -180,33 +201,20 @@ async function runIp(ip, values) {
 
 async function interactive(values) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
+  let input;
   try {
     console.log(bold(`cdn-generator v${pkg.version}\n`));
-    console.log('  1) GitHub repo  -> CDN links (jsDelivr, esm.sh, GitHack, Statically, mirrors)');
-    console.log('  2) IP address   -> wildcard DNS hostnames (nip.io, sslip.io, traefik.me, ...)\n');
-    const choice = (await rl.question('Choose 1 or 2: ')).trim();
-
-    if (choice === '1') {
-      const repo = (await rl.question('GitHub repo (owner/repo or URL): ')).trim();
-      const ref = (await rl.question('Branch/tag/commit (blank = default branch): ')).trim();
-      const all = /^y/i.test((await rl.question('Generate links for every file? (y/N): ')).trim());
-      const file = all ? '' : (await rl.question('File path (blank = repo root): ')).trim();
-      const check = /^y/i.test((await rl.question('Check that the links work? (y/N): ')).trim());
-      rl.close();
-      const opts = { ...values, ref: ref || undefined, all, file: file ? [file] : undefined, check };
-      return { kind: 'repo', result: await runRepo(repo, opts) };
-    }
-    if (choice === '2') {
-      const ip = (await rl.question('IP address: ')).trim();
-      const sub = (await rl.question('Subdomain prefix (blank = none): ')).trim();
-      const check = /^y/i.test((await rl.question('Check DNS resolution? (y/N): ')).trim());
-      rl.close();
-      return { kind: 'ip', ip, result: await runIp(ip, { ...values, sub: sub || undefined, check }) };
-    }
-    throw new Error('Please choose 1 or 2');
+    input = (await rl.question('Paste a GitHub URL (or an IP address): ')).trim();
   } finally {
     rl.close();
   }
+  if (!input) throw new Error('Nothing entered');
+  return run(input, values);
+}
+
+async function run(input, values) {
+  if (looksLikeIp(input)) return { kind: 'ip', ip: input, result: await runIp(input, values) };
+  return { kind: 'repo', result: await runRepo(input, values) };
 }
 
 async function main() {
@@ -216,22 +224,19 @@ async function main() {
 
   const format = values.json ? 'json' : values.md ? 'md' : 'text';
   const [command, target] = positionals;
+  const render = (r) => (r.kind === 'repo' ? renderRepo(r.result, format) : renderIp(r.ip, r.result, format));
   let output;
 
   if (!command) {
     if (!process.stdin.isTTY) return console.log(HELP);
-    const run = await interactive(values);
-    output = run.kind === 'repo' ? renderRepo(run.result, format) : renderIp(run.ip, run.result, format);
+    output = render(await interactive(values));
   } else if (command === 'providers' || command === 'list') {
     output = format === 'json' ? JSON.stringify({ cdnProviders, wildcardProviders }, null, 2) : renderProviders();
-  } else if (command === 'repo' || command === 'gh') {
-    if (!target) throw new Error('Missing repo. Example: cdn-generator repo jquery/jquery@3.7.1');
-    output = renderRepo(await runRepo(target, values), format);
-  } else if (command === 'ip') {
-    if (!target) throw new Error('Missing IP. Example: cdn-generator ip 192.168.1.10');
-    output = renderIp(target, await runIp(target, values), format);
+  } else if (command === 'repo' || command === 'gh' || command === 'ip') {
+    if (!target) throw new Error(`Missing ${command === 'ip' ? 'IP' : 'GitHub URL'}. Run cdn-generator --help`);
+    output = render(await run(target, values));
   } else {
-    throw new Error(`Unknown command "${command}". Run cdn-generator --help`);
+    output = render(await run(command, values));
   }
 
   if (values.out) {
