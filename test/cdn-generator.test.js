@@ -15,6 +15,9 @@ test('parseRepo handles common input styles', () => {
   assert.deepEqual(parseRepo('git@github.com:jquery/jquery.git'), {
     owner: 'jquery', repo: 'jquery', ref: undefined, path: '',
   });
+  assert.deepEqual(parseRepo('https://github.com/a/b/blob/main/svg/my%20file.svg'), {
+    owner: 'a', repo: 'b', ref: 'main', path: 'svg/my file.svg',
+  });
   assert.throws(() => parseRepo('nope'));
 });
 

@@ -45,7 +45,15 @@ export function parseRepo(input) {
   if (!NAME_RE.test(owner) || !NAME_RE.test(repo)) {
     throw new Error(`Could not parse GitHub repository from "${input}"`);
   }
-  return { owner, repo, ref, path };
+  return { owner, repo, ref: ref && safeDecode(ref), path: safeDecode(path) };
+}
+
+function safeDecode(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 const defaultToken = () => process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
