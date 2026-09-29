@@ -34,6 +34,8 @@ For category 1, `generate` is optional (`cdn-generator https://github.com/owner/
 - Folder URL (`/tree/<branch>/<folder>`): links every file in that folder
 - File URL (`/blob/<branch>/<file>`): links just that file
 
+**By default a repo run does everything except wildcard DNS:** it prints the CDN links for every file *and* uploads each file to both Uploadcare and c99 (category 3), up to 25 files. Narrow it to one service with `--uploadcare` or `--c99`, or turn uploads off with `--no-upload`. Repos with more than 25 files still get CDN links; the uploads are skipped with a note.
+
 ## 1) CDN: GitHub repo → CDN links
 
 | Service | Hosts |

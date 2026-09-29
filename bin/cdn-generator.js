@@ -12,6 +12,7 @@ import {
   checkHosts,
   uploadToUploadcare,
   uploadToC99,
+  MAX_UPLOADCARE_FILES,
 } from '../src/index.js';
 
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
@@ -44,8 +45,13 @@ Repo options:
       --root             only print the base URLs, not every file
       --pin              resolve the ref to a commit SHA (best for production)
   -e, --extra            also include unreliable mirrors (rate-limited, whitelist-only, bad TLS)
-  -u, --uploadcare       also upload each file to Uploadcare and add its link (max 25 files)
-      --c99              also upload each file via upload.c99.nl to several reputable domains
+  -u, --uploadcare       only upload to Uploadcare (skip c99)
+      --c99              only upload via c99 (skip Uploadcare)
+      --no-upload        skip uploads (CDN links only)
+
+By default a repo run does everything except wildcard DNS: CDN links for every file
+PLUS an Uploadcare and c99 upload of each file (up to 25 files). Narrow it with
+--uploadcare or --c99, or turn uploads off with --no-upload.
 
 Upload command:
   cdn-generator upload <file|url> [...]   uploads to Uploadcare (default) or --c99
@@ -79,6 +85,7 @@ const options = {
   uploadcare: { type: 'boolean', short: 'u' },
   'uploadcare-key': { type: 'string' },
   c99: { type: 'boolean' },
+  'no-upload': { type: 'boolean' },
   sub: { type: 'string', short: 's' },
   port: { type: 'string' },
   https: { type: 'boolean' },
@@ -190,10 +197,15 @@ const uploadcareOptions = (values) =>
   values['uploadcare-key'] ? { publicKey: values['uploadcare-key'] } : {};
 
 async function runRepo(input, values) {
+  // A bare repo run does "everything" except wildcard DNS: CDN links + both uploads.
+  // Passing --uploadcare or --c99 narrows it to just those; --no-upload turns uploads off.
+  const explicitUpload = values.uploadcare || values.c99;
+  const autoUpload = !explicitUpload && !values['no-upload'] && !values.root;
+  const wantUploadcare = !values.root && (values.uploadcare || autoUpload);
+  const wantC99 = !values.root && (values.c99 || autoUpload);
+
   if (process.stderr.isTTY) process.stderr.write(dim('Fetching repo info from GitHub...\n'));
-  if ((values.uploadcare || values.c99) && !values.root) {
-    process.stderr.write(dim('Uploading files...\n'));
-  }
+  if (wantUploadcare || wantC99) process.stderr.write(dim('Uploading files (use --no-upload to skip)...\n'));
   const result = await generateRepoLinks(input, {
     ref: values.ref,
     pin: values.pin,
@@ -201,10 +213,18 @@ async function runRepo(input, values) {
     files: values.file,
     providers: splitList(values.provider),
     extra: values.extra,
-    uploadcare: values.uploadcare && !values.root ? uploadcareOptions(values) : false,
-    c99: values.c99 && !values.root,
+    uploadcare: wantUploadcare ? uploadcareOptions(values) : false,
+    c99: wantC99,
   });
   result.root = Boolean(values.root);
+  if (result.uploadsSkipped) {
+    process.stderr.write(
+      red(
+        `Skipped uploads: ${result.uploadsSkipped} files is over the ${MAX_UPLOADCARE_FILES}-file limit. ` +
+          'Point at a single file or folder URL to upload, or use --no-upload.\n',
+      ),
+    );
+  }
   if (values.check) {
     const groups = values.root ? [result.base] : result.files.map((f) => f.links);
     const flat = groups.flat();

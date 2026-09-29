@@ -50,10 +50,8 @@ export async function generateRepoLinks(
 
   if (uploadcare || c99) {
     if (result.files.length > MAX_UPLOADCARE_FILES) {
-      throw new Error(
-        `Refusing to upload ${result.files.length} files (max ${MAX_UPLOADCARE_FILES}). ` +
-          'Use a file or folder URL instead.',
-      );
+      result.uploadsSkipped = result.files.length;
+      return result;
     }
     const ucOptions = typeof uploadcare === 'object' ? uploadcare : {};
     const c99Options = typeof c99 === 'object' ? c99 : {};
