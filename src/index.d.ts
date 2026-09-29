@@ -1,6 +1,22 @@
 export interface CdnHost {
   host: string;
   note: string;
+  unreliable?: boolean;
+}
+
+export interface UploadcareOptions {
+  publicKey?: string;
+  fileName?: string;
+  store?: 'auto' | boolean;
+}
+
+export interface UploadcareResult {
+  uuid: string;
+  name: string;
+  size: number;
+  mimeType: string;
+  cdnUrl: string;
+  url: string;
 }
 
 export interface CdnProvider {
@@ -69,7 +85,14 @@ export interface RepoLinksResult extends ResolvedRepo {
 export const cdnProviders: CdnProvider[];
 export const wildcardProviders: WildcardProvider[];
 
-export function cdnLinks(options: RepoTarget & { providers?: string[] }): CdnLink[];
+export function cdnLinks(options: RepoTarget & { providers?: string[]; extra?: boolean }): CdnLink[];
+
+export const DEFAULT_UPLOADCARE_PUBLIC_KEY: string;
+export const MAX_UPLOADCARE_FILES: number;
+export function uploadToUploadcare(
+  input: string | Buffer | Blob,
+  options?: UploadcareOptions,
+): Promise<UploadcareResult>;
 
 export function wildcardHosts(
   ip: string,
@@ -99,6 +122,8 @@ export function generateRepoLinks(
     all?: boolean;
     files?: string[];
     providers?: string[];
+    extra?: boolean;
+    uploadcare?: boolean | UploadcareOptions;
     token?: string;
   },
 ): Promise<RepoLinksResult>;

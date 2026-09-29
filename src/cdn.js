@@ -11,6 +11,9 @@ const ghStyle = (host, { owner, repo, ref, path }) =>
 const githackStyle = (host, { owner, repo, ref, path }) =>
   `https://${host}/${owner}/${repo}/${ref}/${encodePath(path)}`;
 
+const ghSlashStyle = (host, { owner, repo, ref, path }) =>
+  `https://${host}/gh/${owner}/${repo}/${ref}/${encodePath(path)}`;
+
 export const cdnProviders = [
   {
     id: 'jsdelivr',
@@ -77,6 +80,31 @@ export const cdnProviders = [
     hosts: [{ host: 'cdn.statically.io', note: 'GitHub CDN' }],
     url: ghStyle,
   },
+  {
+    id: 'staticdelivr',
+    name: 'StaticDelivr',
+    site: 'https://staticdelivr.com',
+    hosts: [{ host: 'cdn.staticdelivr.com', note: 'GitHub CDN' }],
+    url: ghSlashStyle,
+  },
+  {
+    id: 'mirrors',
+    name: 'Community jsDelivr mirrors',
+    site: 'https://www.jsdelivr.com',
+    hosts: [
+      { host: 'jsdelivr.b-cdn.net', note: 'BunnyCDN' },
+      { host: 'jsd.nmmsl.top', note: 'community mirror' },
+      { host: 'cdn.bili33.top', note: 'community mirror' },
+      { host: 'jsd.yizex.cn', note: 'community mirror' },
+      { host: 'jsd.proxy.aks.moe', note: 'self-signed TLS certificate', unreliable: true },
+      { host: 'jsd.cdn.zzko.cn', note: 'expired TLS certificate', unreliable: true },
+      { host: 'cdn.jsdelivr.net.cn', note: 'heavily rate-limited (429)', unreliable: true },
+      { host: 'code.webcache.cn', note: 'popular repos only (403 otherwise)', unreliable: true },
+      { host: 'jsdelivr.qaq.qa', note: 'whitelisted files only', unreliable: true },
+      { host: 'jsdelivr.aby.pub', note: 'whitelisted files only', unreliable: true },
+    ],
+    url: ghStyle,
+  },
 ];
 
 export function selectProviders(all, ids) {
@@ -95,13 +123,14 @@ export function selectProviders(all, ids) {
 
 /**
  * Build CDN URLs for a file (or the repo root when `path` is empty) in a GitHub repo.
+ * Hosts flagged `unreliable` are only included with `extra: true`.
  */
-export function cdnLinks({ owner, repo, ref, path = '', providers } = {}) {
+export function cdnLinks({ owner, repo, ref, path = '', providers, extra = false } = {}) {
   if (!owner || !repo) throw new Error('owner and repo are required');
   if (!ref) throw new Error('ref (branch, tag or commit) is required');
   const target = { owner, repo, ref, path };
   return selectProviders(cdnProviders, providers).flatMap((provider) =>
-    provider.hosts.map(({ host, note }) => ({
+    provider.hosts.filter((h) => extra || !h.unreliable).map(({ host, note }) => ({
       provider: provider.id,
       providerName: provider.name,
       host,

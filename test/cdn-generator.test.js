@@ -23,14 +23,19 @@ test('parseRepo handles common input styles', () => {
 
 test('cdnLinks covers every provider host', () => {
   const links = cdnLinks({ owner: 'jquery', repo: 'jquery', ref: '3.7.1', path: 'dist/jquery.min.js' });
-  const hostCount = cdnProviders.reduce((n, p) => n + p.hosts.length, 0);
-  assert.equal(links.length, hostCount);
+  const allHosts = cdnProviders.flatMap((p) => p.hosts);
+  assert.equal(links.length, allHosts.filter((h) => !h.unreliable).length);
+  const extra = cdnLinks({ owner: 'jquery', repo: 'jquery', ref: '3.7.1', path: 'x.js', extra: true });
+  assert.equal(extra.length, allHosts.length);
   const byHost = Object.fromEntries(links.map((l) => [l.host, l.url]));
   assert.equal(byHost['cdn.jsdelivr.net'], 'https://cdn.jsdelivr.net/gh/jquery/jquery@3.7.1/dist/jquery.min.js');
   assert.equal(byHost['jsd-proxy.ygxz.in'], 'https://jsd-proxy.ygxz.in/gh/jquery/jquery@3.7.1/dist/jquery.min.js');
   assert.equal(byHost['esm.sh'], 'https://esm.sh/gh/jquery/jquery@3.7.1/dist/jquery.min.js');
   assert.equal(byHost['rawcdn.githack.com'], 'https://rawcdn.githack.com/jquery/jquery/3.7.1/dist/jquery.min.js');
   assert.equal(byHost['cdn.statically.io'], 'https://cdn.statically.io/gh/jquery/jquery@3.7.1/dist/jquery.min.js');
+  assert.equal(byHost['cdn.staticdelivr.com'], 'https://cdn.staticdelivr.com/gh/jquery/jquery/3.7.1/dist/jquery.min.js');
+  assert.equal(byHost['jsdelivr.b-cdn.net'], 'https://jsdelivr.b-cdn.net/gh/jquery/jquery@3.7.1/dist/jquery.min.js');
+  assert.ok(!byHost['jsd.cdn.zzko.cn']);
 });
 
 test('cdnLinks filters providers and encodes paths', () => {

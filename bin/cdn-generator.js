@@ -10,6 +10,7 @@ import {
   wildcardHosts,
   checkUrls,
   checkHosts,
+  uploadToUploadcare,
 } from '../src/index.js';
 
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
@@ -19,22 +20,30 @@ const HELP = `cdn-generator v${pkg.version}
 Generate CDN links for a GitHub repo, or wildcard-DNS hostnames for an IP.
 
 Usage:
-  cdn-generator <github-url>            CDN links for every file in the repo
-  cdn-generator <ip>                    wildcard DNS hostnames for the IP
-  cdn-generator                         interactive: paste a GitHub URL or IP
+  cdn-generator generate <github-url>   CDN links for every file in the repo
+  cdn-generator generate <ip>           wildcard DNS hostnames for the IP
+  cdn-generator upload <file|url>       upload a file to Uploadcare and print its CDN link
   cdn-generator providers               list all supported services
+  cdn-generator                         interactive: paste a GitHub URL or IP
+
+  "generate" is optional: cdn-generator <github-url> works the same.
 
 Examples:
-  cdn-generator https://github.com/jquery/jquery
-  cdn-generator https://github.com/jquery/jquery/tree/3.7.1/dist
-  cdn-generator jquery/jquery@3.7.1
-  cdn-generator 192.168.1.10 --sub app
+  cdn-generator generate https://github.com/jquery/jquery
+  cdn-generator generate https://github.com/jquery/jquery/blob/3.7.1/dist/jquery.min.js --uploadcare
+  cdn-generator upload ./logo.svg
+  cdn-generator generate 192.168.1.10 --sub app
 
 Repo options:
   -r, --ref <ref>        branch, tag or commit (default: from the URL, else the default branch)
   -f, --file <path>      only link these files (repeatable)
       --root             only print the base URLs, not every file
       --pin              resolve the ref to a commit SHA (best for production)
+  -e, --extra            also include unreliable mirrors (rate-limited, whitelist-only, bad TLS)
+  -u, --uploadcare       also upload each file to Uploadcare and add its link (max 25 files)
+
+Uploadcare options:
+      --uploadcare-key <key>  Uploadcare public key (default: $UPLOADCARE_PUBLIC_KEY or built-in)
 
 IP options:
   -s, --sub <name>       subdomain prefix, e.g. "app" -> app.10.0.0.1.nip.io
@@ -58,6 +67,9 @@ const options = {
   all: { type: 'boolean', short: 'a' },
   root: { type: 'boolean' },
   pin: { type: 'boolean' },
+  extra: { type: 'boolean', short: 'e' },
+  uploadcare: { type: 'boolean', short: 'u' },
+  'uploadcare-key': { type: 'string' },
   sub: { type: 'string', short: 's' },
   port: { type: 'string' },
   https: { type: 'boolean' },
@@ -148,8 +160,11 @@ function renderProviders() {
   const lines = [bold('CDN providers (repo mode)')];
   for (const p of cdnProviders) {
     lines.push(`  ${bold(p.id.padEnd(16))} ${dim(p.site)}`);
-    for (const h of p.hosts) lines.push(`    ${h.host.padEnd(28)} ${dim(h.note)}`);
+    for (const h of p.hosts) {
+      lines.push(`    ${h.host.padEnd(28)} ${dim(h.note)}${h.unreliable ? red('  (--extra only)') : ''}`);
+    }
   }
+  lines.push(`  ${bold('uploadcare'.padEnd(16))} ${dim('https://uploadcare.com')}  via --uploadcare or the upload command`);
   lines.push('', bold('Wildcard DNS providers (ip mode)'));
   for (const p of wildcardProviders) {
     const formats = [...p.formats, ...(p.ipv6 ? ['ipv6'] : [])].join(', ');
@@ -160,14 +175,20 @@ function renderProviders() {
 
 const splitList = (list) => list?.flatMap((v) => v.split(',')).map((v) => v.trim()).filter(Boolean);
 
+const uploadcareOptions = (values) =>
+  values['uploadcare-key'] ? { publicKey: values['uploadcare-key'] } : {};
+
 async function runRepo(input, values) {
   if (process.stderr.isTTY) process.stderr.write(dim('Fetching repo info from GitHub...\n'));
+  if (values.uploadcare && !values.root) process.stderr.write(dim('Uploading to Uploadcare...\n'));
   const result = await generateRepoLinks(input, {
     ref: values.ref,
     pin: values.pin,
     all: values.root ? false : values.all,
     files: values.file,
     providers: splitList(values.provider),
+    extra: values.extra,
+    uploadcare: values.uploadcare && !values.root ? uploadcareOptions(values) : false,
   });
   result.root = Boolean(values.root);
   if (values.check) {
@@ -212,6 +233,21 @@ async function interactive(values) {
   return run(input, values);
 }
 
+async function runUpload(inputs, values, format) {
+  const results = [];
+  for (const input of inputs) {
+    process.stderr.write(dim(`Uploading ${input} to Uploadcare...\n`));
+    results.push({ input, ...(await uploadToUploadcare(input, uploadcareOptions(values))) });
+  }
+  if (format === 'json') return JSON.stringify(results.length === 1 ? results[0] : results, null, 2);
+  if (format === 'md') {
+    return ['| File | Uploadcare URL |', '| --- | --- |', ...results.map((r) => `| ${r.name} | ${r.url} |`)].join('\n');
+  }
+  return results
+    .map((r) => `${bold(r.name)} ${dim(`(${r.mimeType}, ${r.size} bytes, uuid ${r.uuid})`)}\n  ${r.url}`)
+    .join('\n');
+}
+
 async function run(input, values) {
   if (looksLikeIp(input)) return { kind: 'ip', ip: input, result: await runIp(input, values) };
   return { kind: 'repo', result: await runRepo(input, values) };
@@ -223,7 +259,7 @@ async function main() {
   if (values.version) return console.log(pkg.version);
 
   const format = values.json ? 'json' : values.md ? 'md' : 'text';
-  const [command, target] = positionals;
+  const [command, target, ...more] = positionals;
   const render = (r) => (r.kind === 'repo' ? renderRepo(r.result, format) : renderIp(r.ip, r.result, format));
   let output;
 
@@ -232,9 +268,12 @@ async function main() {
     output = render(await interactive(values));
   } else if (command === 'providers' || command === 'list') {
     output = format === 'json' ? JSON.stringify({ cdnProviders, wildcardProviders }, null, 2) : renderProviders();
-  } else if (command === 'repo' || command === 'gh' || command === 'ip') {
+  } else if (['generate', 'gen', 'repo', 'gh', 'ip'].includes(command)) {
     if (!target) throw new Error(`Missing ${command === 'ip' ? 'IP' : 'GitHub URL'}. Run cdn-generator --help`);
     output = render(await run(target, values));
+  } else if (command === 'upload') {
+    if (!target) throw new Error('Missing file. Example: cdn-generator upload ./logo.svg');
+    output = await runUpload([target, ...more], values, format);
   } else {
     output = render(await run(command, values));
   }

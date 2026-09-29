@@ -26,7 +26,8 @@ export async function checkUrls(links, { concurrency = 8, timeout = 15000 } = {}
       res.body?.cancel().catch(() => {});
       return { ...link, status: res.status, ok: res.ok };
     } catch (err) {
-      return { ...link, status: 0, ok: false, error: err.name === 'TimeoutError' ? 'timeout' : err.message };
+      const error = err.name === 'TimeoutError' ? 'timeout' : err.cause?.code || err.message;
+      return { ...link, status: 0, ok: false, error };
     }
   });
 }
