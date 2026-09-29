@@ -41,6 +41,7 @@ cdn-generator generate https://github.com/owner/repo
 | [StaticDelivr](https://staticdelivr.com) | `cdn.staticdelivr.com` |
 | Community jsDelivr mirrors | `jsdelivr.b-cdn.net`, `jsd.nmmsl.top`, `cdn.bili33.top`, `jsd.yizex.cn` |
 | [Uploadcare](https://uploadcare.com) | `<project>.ucarecd.net` (with `--uploadcare`, see below) |
+| [c99](https://upload.c99.nl) | several reputable domains (with `--c99`, see below) |
 
 `--extra` also adds mirrors that only work some of the time: `jsd.proxy.aks.moe` (self-signed certificate), `jsd.cdn.zzko.cn` (expired certificate), `cdn.jsdelivr.net.cn` (rate-limited), `code.webcache.cn` (popular repos only), `jsdelivr.qaq.qa` and `jsdelivr.aby.pub` (whitelisted files only).
 
@@ -68,19 +69,23 @@ Accepted repo formats: `owner/repo`, `owner/repo@ref`, `owner/repo#ref`, `github
 
 Branch links are cached by the CDNs (jsDelivr caches branches for up to 12h, `rawcdn.githack.com` forever), so use a tag or `--pin` for production.
 
-## Uploadcare
+## Uploading a copy (Uploadcare and c99)
 
-Unlike the CDNs above, Uploadcare stores its own copy of the file.
+Unlike the CDNs above, these services store their own copy of the file, so they work for files that aren't on GitHub.
+
+- **Uploadcare** (`--uploadcare`): one link on your Uploadcare CDN. A built-in public key is used by default; use your own with `--uploadcare-key <key>` or `UPLOADCARE_PUBLIC_KEY=<key>`.
+- **c99** (`--c99`): uses [upload.c99.nl](https://upload.c99.nl), which stores the file on several reputable help-center domains (figma, cpanel, washingtonpost, and more) and returns a link for each.
 
 ```bash
-# upload local files (or public URLs) and print their Uploadcare links
+# upload local files (or public URLs) to Uploadcare
 cdn-generator upload ./logo.svg ./banner.png
 
-# generate links for a GitHub file and also copy it to Uploadcare (max 25 files per run)
-cdn-generator generate https://github.com/owner/repo/blob/main/logo.svg --uploadcare
-```
+# upload to c99 instead (many domains)
+cdn-generator upload ./logo.svg --c99
 
-A built-in public key is used by default. Use your own with `--uploadcare-key <key>` or `UPLOADCARE_PUBLIC_KEY=<key>`.
+# generate CDN links for a GitHub file and also copy it (max 25 files per run)
+cdn-generator generate https://github.com/owner/repo/blob/main/logo.svg --uploadcare --c99
+```
 
 ## Mode 2: IP → wildcard DNS hostnames
 
@@ -114,7 +119,7 @@ Set `GITHUB_TOKEN` (or `GH_TOKEN`) to raise the GitHub API rate limit when using
 ## Library
 
 ```js
-import { cdnLinks, generateRepoLinks, uploadToUploadcare, wildcardHosts, checkUrls, checkHosts } from 'cdn-generator';
+import { cdnLinks, generateRepoLinks, uploadToUploadcare, uploadToC99, wildcardHosts, checkUrls, checkHosts } from 'cdn-generator';
 
 cdnLinks({ owner: 'jquery', repo: 'jquery', ref: '3.7.1', path: 'dist/jquery.min.js' });
 // [{ provider: 'jsdelivr', host: 'cdn.jsdelivr.net', url: 'https://cdn.jsdelivr.net/gh/jquery/jquery@3.7.1/dist/jquery.min.js', ... }, ...]
@@ -124,6 +129,9 @@ const result = await generateRepoLinks('https://github.com/jquery/jquery/tree/3.
 
 await uploadToUploadcare('./logo.svg'); // also accepts a Buffer, Blob or public URL
 // { uuid, name, size, mimeType, cdnUrl, url: 'https://<project>.ucarecd.net/<uuid>/logo.svg' }
+
+await uploadToC99('./logo.svg'); // one result per reputable domain
+// { name: 'logo.svg', results: [{ domain: 'help.figma.com', ok: true, url: 'https://help.figma.com/attachments/token/.../?name=logo.svg' }, ...] }
 
 wildcardHosts('10.0.0.1', { sub: 'app', port: 8080 });
 // [{ provider: 'nip.io', format: 'dot', host: 'app.10.0.0.1.nip.io', url: 'http://app.10.0.0.1.nip.io:8080' }, ...]

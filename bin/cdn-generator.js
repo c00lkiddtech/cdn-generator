@@ -11,6 +11,7 @@ import {
   checkUrls,
   checkHosts,
   uploadToUploadcare,
+  uploadToC99,
 } from '../src/index.js';
 
 const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
@@ -41,6 +42,10 @@ Repo options:
       --pin              resolve the ref to a commit SHA (best for production)
   -e, --extra            also include unreliable mirrors (rate-limited, whitelist-only, bad TLS)
   -u, --uploadcare       also upload each file to Uploadcare and add its link (max 25 files)
+      --c99              also upload each file via upload.c99.nl to several reputable domains
+
+Upload command:
+  cdn-generator upload <file|url> [...]   uploads to Uploadcare (default) or --c99
 
 Uploadcare options:
       --uploadcare-key <key>  Uploadcare public key (default: $UPLOADCARE_PUBLIC_KEY or built-in)
@@ -70,6 +75,7 @@ const options = {
   extra: { type: 'boolean', short: 'e' },
   uploadcare: { type: 'boolean', short: 'u' },
   'uploadcare-key': { type: 'string' },
+  c99: { type: 'boolean' },
   sub: { type: 'string', short: 's' },
   port: { type: 'string' },
   https: { type: 'boolean' },
@@ -165,6 +171,7 @@ function renderProviders() {
     }
   }
   lines.push(`  ${bold('uploadcare'.padEnd(16))} ${dim('https://uploadcare.com')}  via --uploadcare or the upload command`);
+  lines.push(`  ${bold('c99'.padEnd(16))} ${dim('https://upload.c99.nl')}  via --c99 (uploads to several reputable domains)`);
   lines.push('', bold('Wildcard DNS providers (ip mode)'));
   for (const p of wildcardProviders) {
     const formats = [...p.formats, ...(p.ipv6 ? ['ipv6'] : [])].join(', ');
@@ -180,7 +187,9 @@ const uploadcareOptions = (values) =>
 
 async function runRepo(input, values) {
   if (process.stderr.isTTY) process.stderr.write(dim('Fetching repo info from GitHub...\n'));
-  if (values.uploadcare && !values.root) process.stderr.write(dim('Uploading to Uploadcare...\n'));
+  if ((values.uploadcare || values.c99) && !values.root) {
+    process.stderr.write(dim('Uploading files...\n'));
+  }
   const result = await generateRepoLinks(input, {
     ref: values.ref,
     pin: values.pin,
@@ -189,6 +198,7 @@ async function runRepo(input, values) {
     providers: splitList(values.provider),
     extra: values.extra,
     uploadcare: values.uploadcare && !values.root ? uploadcareOptions(values) : false,
+    c99: values.c99 && !values.root,
   });
   result.root = Boolean(values.root);
   if (values.check) {
@@ -234,17 +244,37 @@ async function interactive(values) {
 }
 
 async function runUpload(inputs, values, format) {
+  const service = values.c99 ? 'c99' : 'Uploadcare';
   const results = [];
   for (const input of inputs) {
-    process.stderr.write(dim(`Uploading ${input} to Uploadcare...\n`));
-    results.push({ input, ...(await uploadToUploadcare(input, uploadcareOptions(values))) });
+    process.stderr.write(dim(`Uploading ${input} to ${service}...\n`));
+    if (values.c99) {
+      const { name, results: hosts } = await uploadToC99(input);
+      results.push({ input, name, hosts });
+    } else {
+      results.push({ input, ...(await uploadToUploadcare(input, uploadcareOptions(values))) });
+    }
   }
   if (format === 'json') return JSON.stringify(results.length === 1 ? results[0] : results, null, 2);
   if (format === 'md') {
-    return ['| File | Uploadcare URL |', '| --- | --- |', ...results.map((r) => `| ${r.name} | ${r.url} |`)].join('\n');
+    const rows = ['| File | URL |', '| --- | --- |'];
+    for (const r of results) {
+      if (r.hosts) for (const h of r.hosts.filter((x) => x.ok)) rows.push(`| ${r.name} (${h.domain}) | ${h.url} |`);
+      else rows.push(`| ${r.name} | ${r.url} |`);
+    }
+    return rows.join('\n');
   }
   return results
-    .map((r) => `${bold(r.name)} ${dim(`(${r.mimeType}, ${r.size} bytes, uuid ${r.uuid})`)}\n  ${r.url}`)
+    .map((r) => {
+      if (r.hosts) {
+        const ok = r.hosts.filter((h) => h.ok);
+        const failed = r.hosts.filter((h) => !h.ok);
+        const lines = [bold(r.name), ...ok.map((h) => `  ${h.url}  ${dim(h.domain)}`)];
+        if (failed.length) lines.push(dim(`  (failed: ${failed.map((h) => h.domain).join(', ')})`));
+        return lines.join('\n');
+      }
+      return `${bold(r.name)} ${dim(`(${r.mimeType}, ${r.size} bytes, uuid ${r.uuid})`)}\n  ${r.url}`;
+    })
     .join('\n');
 }
 

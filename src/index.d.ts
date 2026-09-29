@@ -94,6 +94,20 @@ export function uploadToUploadcare(
   options?: UploadcareOptions,
 ): Promise<UploadcareResult>;
 
+export const C99_DOMAINS: string[];
+export interface C99HostResult {
+  domain: string;
+  ok: boolean;
+  url?: string;
+  size?: number;
+  contentType?: string;
+  error?: string;
+}
+export function uploadToC99(
+  input: string | Buffer | Blob,
+  options?: { fileName?: string; domains?: string[]; timeout?: number },
+): Promise<{ name: string; results: C99HostResult[] }>;
+
 export function wildcardHosts(
   ip: string,
   options?: { sub?: string; providers?: string[]; port?: number; protocol?: 'http' | 'https' },
@@ -124,6 +138,7 @@ export function generateRepoLinks(
     providers?: string[];
     extra?: boolean;
     uploadcare?: boolean | UploadcareOptions;
+    c99?: boolean | { fileName?: string; domains?: string[]; timeout?: number };
     token?: string;
   },
 ): Promise<RepoLinksResult>;
