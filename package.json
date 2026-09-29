@@ -1,6 +1,6 @@
 {
   "name": "cdn-generator",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Generate CDN links for any GitHub repo (jsDelivr, esm.sh, GitHack, Statically, jsDelivr mirrors) and wildcard DNS hostnames for any IP (nip.io, sslip.io, traefik.me, backname.io, anyip.dev, local-ip.sh).",
   "type": "module",
   "main": "./src/index.js",
