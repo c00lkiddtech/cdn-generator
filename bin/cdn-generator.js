@@ -18,21 +18,24 @@ const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url
 
 const HELP = `cdn-generator v${pkg.version}
 
-Generate CDN links for a GitHub repo, or wildcard-DNS hostnames for an IP.
+Three categories:
+  1) CDN       GitHub repo -> CDN links (jsDelivr, esm.sh, GitHack, mirrors)
+  2) Wildcard  IP address -> wildcard DNS hostnames (nip.io, sslip.io, ...)
+  3) Gens      upload a file -> Uploadcare or c99 links
 
 Usage:
-  cdn-generator generate <github-url>   CDN links for every file in the repo
-  cdn-generator generate <ip>           wildcard DNS hostnames for the IP
-  cdn-generator upload <file|url>       upload a file to Uploadcare and print its CDN link
+  cdn-generator generate <github-url>   1) CDN links for every file in the repo
+  cdn-generator generate <ip>           2) wildcard DNS hostnames for the IP
+  cdn-generator upload <file|url>       3) upload a file (Uploadcare, or c99 with --c99)
   cdn-generator providers               list all supported services
-  cdn-generator                         interactive: paste a GitHub URL or IP
+  cdn-generator                         interactive menu for all three categories
 
   "generate" is optional: cdn-generator <github-url> works the same.
 
 Examples:
   cdn-generator generate https://github.com/jquery/jquery
-  cdn-generator generate https://github.com/jquery/jquery/blob/3.7.1/dist/jquery.min.js --uploadcare
-  cdn-generator upload ./logo.svg
+  cdn-generator generate https://github.com/jquery/jquery/blob/3.7.1/dist/jquery.min.js --uploadcare --c99
+  cdn-generator upload ./logo.svg --c99
   cdn-generator generate 192.168.1.10 --sub app
 
 Repo options:
@@ -163,20 +166,21 @@ function renderIp(ip, hosts, format) {
 }
 
 function renderProviders() {
-  const lines = [bold('CDN providers (repo mode)')];
+  const lines = [bold('1) CDN providers (GitHub repo -> CDN links)')];
   for (const p of cdnProviders) {
     lines.push(`  ${bold(p.id.padEnd(16))} ${dim(p.site)}`);
     for (const h of p.hosts) {
       lines.push(`    ${h.host.padEnd(28)} ${dim(h.note)}${h.unreliable ? red('  (--extra only)') : ''}`);
     }
   }
-  lines.push(`  ${bold('uploadcare'.padEnd(16))} ${dim('https://uploadcare.com')}  via --uploadcare or the upload command`);
-  lines.push(`  ${bold('c99'.padEnd(16))} ${dim('https://upload.c99.nl')}  via --c99 (uploads to several reputable domains)`);
-  lines.push('', bold('Wildcard DNS providers (ip mode)'));
+  lines.push('', bold('2) Wildcard DNS providers (IP -> hostnames)'));
   for (const p of wildcardProviders) {
     const formats = [...p.formats, ...(p.ipv6 ? ['ipv6'] : [])].join(', ');
     lines.push(`  ${bold(p.id.padEnd(16))} ${dim(p.site)}  formats: ${formats}`);
   }
+  lines.push('', bold('3) Gens (upload a file -> links)'));
+  lines.push(`  ${bold('uploadcare'.padEnd(16))} ${dim('https://uploadcare.com')}  --uploadcare, or: cdn-generator upload <file>`);
+  lines.push(`  ${bold('c99'.padEnd(16))} ${dim('https://upload.c99.nl')}  --c99 (uploads to several reputable domains)`);
   return lines.join('\n');
 }
 
@@ -230,17 +234,36 @@ async function runIp(ip, values) {
   return hosts;
 }
 
-async function interactive(values) {
+async function interactive(values, format) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  let input;
   try {
     console.log(bold(`cdn-generator v${pkg.version}\n`));
-    input = (await rl.question('Paste a GitHub URL (or an IP address): ')).trim();
+    console.log(`  ${bold('1) CDN')}       GitHub repo -> CDN links (jsDelivr, esm.sh, GitHack, mirrors)`);
+    console.log(`  ${bold('2) Wildcard')}  IP address -> wildcard DNS hostnames (nip.io, sslip.io, ...)`);
+    console.log(`  ${bold('3) Gens')}      upload a file -> Uploadcare or c99 links\n`);
+    const choice = (await rl.question('Choose 1, 2 or 3: ')).trim();
+
+    if (choice === '1' || /^cdn$/i.test(choice)) {
+      const input = (await rl.question('GitHub repo or URL: ')).trim();
+      if (!input) throw new Error('Nothing entered');
+      return { kind: 'repo', result: await runRepo(input, values) };
+    }
+    if (choice === '2' || /^wild/i.test(choice)) {
+      const input = (await rl.question('IP address: ')).trim();
+      if (!input) throw new Error('Nothing entered');
+      return { kind: 'ip', ip: input, result: await runIp(input, values) };
+    }
+    if (choice === '3' || /^gen/i.test(choice)) {
+      const svc = (await rl.question('Upload to (1) Uploadcare or (2) c99? ')).trim();
+      const useC99 = svc === '2' || /c99/i.test(svc);
+      const file = (await rl.question('File path or URL: ')).trim();
+      if (!file) throw new Error('Nothing entered');
+      return { kind: 'upload', text: await runUpload([file], { ...values, c99: useC99 }, format) };
+    }
+    throw new Error('Please choose 1, 2 or 3');
   } finally {
     rl.close();
   }
-  if (!input) throw new Error('Nothing entered');
-  return run(input, values);
 }
 
 async function runUpload(inputs, values, format) {
@@ -290,12 +313,13 @@ async function main() {
 
   const format = values.json ? 'json' : values.md ? 'md' : 'text';
   const [command, target, ...more] = positionals;
-  const render = (r) => (r.kind === 'repo' ? renderRepo(r.result, format) : renderIp(r.ip, r.result, format));
+  const render = (r) =>
+    r.kind === 'upload' ? r.text : r.kind === 'repo' ? renderRepo(r.result, format) : renderIp(r.ip, r.result, format);
   let output;
 
   if (!command) {
     if (!process.stdin.isTTY) return console.log(HELP);
-    output = render(await interactive(values));
+    output = render(await interactive(values, format));
   } else if (command === 'providers' || command === 'list') {
     output = format === 'json' ? JSON.stringify({ cdnProviders, wildcardProviders }, null, 2) : renderProviders();
   } else if (['generate', 'gen', 'repo', 'gh', 'ip'].includes(command)) {

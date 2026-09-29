@@ -14,20 +14,27 @@ npx cdn-generator
 
 ## Usage
 
-Give `generate` a GitHub URL. It finds the default branch, lists every file, and prints the link for each file on every CDN:
+Run `cdn-generator` (or `cdngen`) with no arguments for an interactive menu with three categories:
+
+1. **CDN** — GitHub repo → CDN links
+2. **Wildcard** — IP address → wildcard DNS hostnames
+3. **Gens** — upload a file → Uploadcare or c99 links
+
+Or call each category directly:
 
 ```bash
-cdn-generator generate https://github.com/owner/repo
+cdn-generator generate https://github.com/owner/repo   # 1) CDN
+cdn-generator generate 192.168.1.10                    # 2) Wildcard
+cdn-generator upload ./logo.svg                        # 3) Gens
 ```
 
-`generate` is optional (`cdn-generator https://github.com/owner/repo` does the same), or run `cdn-generator` (or `cdngen`) with no arguments and paste the URL when asked.
+For category 1, `generate` is optional (`cdn-generator https://github.com/owner/repo` does the same):
 
 - Repo URL: links every file in the repo
 - Folder URL (`/tree/<branch>/<folder>`): links every file in that folder
 - File URL (`/blob/<branch>/<file>`): links just that file
-- An IP address instead of a URL: wildcard DNS hostnames (mode 2 below)
 
-## Mode 1: GitHub repo → CDN links
+## 1) CDN: GitHub repo → CDN links
 
 | Service | Hosts |
 | --- | --- |
@@ -69,7 +76,7 @@ Accepted repo formats: `owner/repo`, `owner/repo@ref`, `owner/repo#ref`, `github
 
 Branch links are cached by the CDNs (jsDelivr caches branches for up to 12h, `rawcdn.githack.com` forever), so use a tag or `--pin` for production.
 
-## Uploading a copy (Uploadcare and c99)
+## 3) Gens: upload a copy (Uploadcare and c99)
 
 Unlike the CDNs above, these services store their own copy of the file, so they work for files that aren't on GitHub.
 
@@ -87,7 +94,7 @@ cdn-generator upload ./logo.svg --c99
 cdn-generator generate https://github.com/owner/repo/blob/main/logo.svg --uploadcare --c99
 ```
 
-## Mode 2: IP → wildcard DNS hostnames
+## 2) Wildcard: IP → wildcard DNS hostnames
 
 | Service | Formats | IPv6 |
 | --- | --- | --- |
